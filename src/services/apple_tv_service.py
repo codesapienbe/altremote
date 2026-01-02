@@ -104,13 +104,40 @@ class AppleTVService(EventDispatcher):
         except RuntimeError:
             self._loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._loop)
-    
-    def _run_async(self, coro):
-        """Run an async coroutine from sync code."""
-        if self._loop.is_running():
-            asyncio.ensure_future(coro, loop=self._loop)
-        else:
-            self._loop.run_until_complete(coro)
+
+    def _run_async(self, coro, timeout: float = 5.0):
+        """Run an async coroutine from sync code with error handling."""
+        async def safe_wrapper():
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                self._log("Operation timed out", "warning")
+            except asyncio.CancelledError:
+                self._log("Operation cancelled", "debug")
+            except Exception as e:
+                self._log(f"Async error: {type(e).__name__}: {e}", "error")
+            return None
+
+        try:
+            if self._loop.is_running():
+                future = asyncio.ensure_future(safe_wrapper(), loop=self._loop)
+                # Add callback to handle any remaining exceptions
+                future.add_done_callback(self._handle_future_exception)
+            else:
+                self._loop.run_until_complete(safe_wrapper())
+        except Exception as e:
+            self._log(f"Run async failed: {type(e).__name__}: {e}", "error")
+
+    def _handle_future_exception(self, future):
+        """Handle exceptions from completed futures."""
+        try:
+            exc = future.exception()
+            if exc:
+                self._log(f"Future exception: {type(exc).__name__}: {exc}", "error")
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
     
     # Discovery Methods
     
@@ -124,7 +151,8 @@ class AppleTVService(EventDispatcher):
             Clock.schedule_once(lambda dt: self._simulate_discovery(), 2.0)
             return
         
-        self._run_async(self._discover_devices(timeout))
+        # Use longer timeout for discovery (scan timeout + buffer)
+        self._run_async(self._discover_devices(timeout), timeout=timeout + 5.0)
     
     async def _discover_devices(self, timeout: float):
         """Async device discovery."""
@@ -191,7 +219,7 @@ class AppleTVService(EventDispatcher):
         else:
             # Have credentials - try to connect
             self.connection_state = ConnectionState.CONNECTING.value
-            self._run_async(self._connect_to_device(device, credentials))
+            self._run_async(self._connect_to_device(device, credentials), timeout=15.0)
     
     async def _connect_to_device(self, device: DiscoveredDevice, credentials=None):
         """Async connection to Apple TV."""
@@ -227,7 +255,7 @@ class AppleTVService(EventDispatcher):
     def _request_pairing(self, device: DiscoveredDevice):
         """Request pairing with the device."""
         self.connection_state = ConnectionState.PAIRING.value
-        self._run_async(self._start_pairing(device))
+        self._run_async(self._start_pairing(device), timeout=15.0)
     
     async def _start_pairing(self, device: DiscoveredDevice):
         """Start the pairing process."""
@@ -248,7 +276,7 @@ class AppleTVService(EventDispatcher):
             Clock.schedule_once(lambda dt: self._on_connected(), 1.0)
             return
         
-        self._run_async(self._finish_pairing(pin))
+        self._run_async(self._finish_pairing(pin), timeout=15.0)
     
     async def _finish_pairing(self, pin: str):
         """Complete the pairing process with the PIN."""
