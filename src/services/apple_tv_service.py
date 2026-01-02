@@ -69,12 +69,13 @@ class AppleTVService(EventDispatcher):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         self._atv: Optional['AppleTV'] = None
         self._remote: Optional['RemoteControl'] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._discovery_task = None
         self._credentials = {}
+        self._log_service = None
 
         # Initialize persistent storage and load saved credentials
         self._credential_storage = CredentialStorage()
@@ -83,6 +84,18 @@ class AppleTVService(EventDispatcher):
 
         # Create event loop for async operations
         self._setup_event_loop()
+
+    def set_log_service(self, log_service):
+        """Set the log service for error reporting."""
+        self._log_service = log_service
+
+    def _log(self, message: str, level: str = "info"):
+        """Log a message through the log service."""
+        if self._log_service:
+            method = getattr(self._log_service, level, self._log_service.info)
+            method(message, source="ATV")
+        else:
+            print(f"[{level.upper()}] {message}")
     
     def _setup_event_loop(self):
         """Set up the asyncio event loop."""
@@ -270,12 +283,17 @@ class AppleTVService(EventDispatcher):
     def _send_command(self, command_name: str, **kwargs):
         """Send a remote control command."""
         if not PYATV_AVAILABLE or not self._remote:
-            print(f"[Simulated] Command: {command_name} {kwargs}")
+            self._log(f"[Simulated] Command: {command_name} {kwargs}", "debug")
             return
-        
+
         command = getattr(self._remote, command_name, None)
         if command:
-            self._run_async(command(**kwargs))
+            try:
+                self._run_async(command(**kwargs))
+            except Exception as e:
+                self._log(f"Command {command_name} failed: {e}", "error")
+        else:
+            self._log(f"Command {command_name} not supported", "warning")
     
     # Navigation Commands
     
@@ -413,34 +431,45 @@ class AppleTVService(EventDispatcher):
     def touch_action(self, x: int, y: int, action_type: str = 'tap'):
         """
         Send a touch action at specific coordinates.
-        
+
         Coordinates are in range [0, 1000].
-        
+
         Args:
             x: X coordinate
             y: Y coordinate
             action_type: 'tap', 'down', 'up', or 'move'
         """
         if not PYATV_AVAILABLE:
-            print(f"[Simulated] Touch {action_type}: ({x},{y})")
+            self._log(f"[Simulated] Touch {action_type}: ({x},{y})", "debug")
             return
-        
-        if self._atv and hasattr(self._atv, 'touch'):
-            # Map action type to pyatv TouchAction enum
-            from pyatv.const import TouchAction
-            action_map = {
-                'tap': TouchAction.Click,
-                'down': TouchAction.Down,
-                'up': TouchAction.Up,
-                'move': TouchAction.Move
-            }
-            action = action_map.get(action_type, TouchAction.Click)
-            self._run_async(self._atv.touch.action(x, y, action))
+
+        try:
+            if self._atv and hasattr(self._atv, 'touch'):
+                # For tap, use a zero-distance swipe (tap at location)
+                if action_type == 'tap':
+                    self._run_async(self._atv.touch.swipe(x, y, x, y, 50))
+                elif action_type in ('down', 'move', 'up'):
+                    # Track touch state for continuous gestures
+                    if action_type == 'down':
+                        self._touch_start = (x, y)
+                    elif action_type == 'move' and hasattr(self, '_touch_start'):
+                        pass  # Continuous move handled by swipe on 'up'
+                    elif action_type == 'up' and hasattr(self, '_touch_start'):
+                        start_x, start_y = self._touch_start
+                        # Only send swipe if there was actual movement
+                        if abs(x - start_x) > 20 or abs(y - start_y) > 20:
+                            self._run_async(self._atv.touch.swipe(start_x, start_y, x, y, 100))
+                        else:
+                            # Small movement = tap at end location
+                            self._run_async(self._atv.touch.swipe(x, y, x, y, 50))
+                        delattr(self, '_touch_start')
+        except Exception as e:
+            self._log(f"Touch action failed: {e}", "error")
     
     # Error Handling
-    
+
     def _handle_error(self, message: str):
-        """Handle errors."""
+        """Handle errors without crashing."""
         self.error_message = message
         self.connection_state = ConnectionState.ERROR.value
-        print(f"AppleTVService Error: {message}")
+        self._log(message, "error")
