@@ -1,0 +1,46 @@
+[project]
+name = "altremote"
+version = "0.1.0"
+description = "A mobile remote control app for Apple TV gaming"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "kivy>=2.3.0",
+    "pyatv>=0.14.0",
+    "plyer>=2.1.0",
+    "zeroconf>=0.80.0",
+    "cryptography>=41.0.0",
+    "pyyaml>=6.0",
+    "keyring>=24.0.0",
+    # Dev
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    # Build
+    "buildozer>=1.5.0",
+    "cython>=3.0.0",
+    "pillow>=12.0.0",
+]
+
+[project.scripts]
+altremote = "altremote.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "altremote",
+    "altremote.screens",
+    "altremote.services",
+    "altremote.widgets",
+    "altremote.utils",
+]
+
+[tool.setuptools.package-dir]
+altremote = "src"
+"altremote.screens" = "src/screens"
+"altremote.services" = "src/services"
+"altremote.widgets" = "src/widgets"
+"altremote.utils" = "src/utils"
