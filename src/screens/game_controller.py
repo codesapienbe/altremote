@@ -10,14 +10,80 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, BooleanProperty
 from kivy.clock import Clock
 from kivy.app import App
-from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.graphics import Color, RoundedRectangle, Rectangle, Line
 
 from ..widgets.touch_pad import TouchPad
 from ..widgets.game_buttons import GameButtons, DPad
+
+
+class IconButton(ButtonBehavior, Widget):
+    """Button with canvas-drawn icon."""
+
+    def __init__(self, icon_type: str = "back", size_hint=(None, None),
+                 width=50, height=50, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = size_hint
+        self.size = (width, height)
+        self.icon_type = icon_type
+        self._draw()
+        self.bind(pos=self._draw, size=self._draw)
+
+    def _draw(self, *args):
+        self.canvas.clear()
+        with self.canvas:
+            # Background
+            Color(0.22, 0.22, 0.27, 1)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
+
+            # Icon color
+            Color(0.7, 0.7, 0.7, 1)
+
+            cx, cy = self.center_x, self.center_y
+
+            if self.icon_type == "back":
+                # Left chevron <
+                Line(points=[cx + 6, cy + 10, cx - 6, cy, cx + 6, cy - 10], width=2)
+
+            elif self.icon_type == "menu":
+                # Three horizontal lines (hamburger menu)
+                Line(points=[cx - 10, cy + 8, cx + 10, cy + 8], width=2)
+                Line(points=[cx - 10, cy, cx + 10, cy], width=2)
+                Line(points=[cx - 10, cy - 8, cx + 10, cy - 8], width=2)
+
+            elif self.icon_type == "home":
+                # House shape
+                # Roof
+                Line(points=[cx - 12, cy, cx, cy + 10, cx + 12, cy], width=2)
+                # Walls
+                Line(points=[cx - 10, cy, cx - 10, cy - 10, cx + 10, cy - 10, cx + 10, cy], width=2)
+                # Door
+                Line(points=[cx - 3, cy - 10, cx - 3, cy - 3, cx + 3, cy - 3, cx + 3, cy - 10], width=1.5)
+
+            elif self.icon_type == "gamepad":
+                # Controller shape
+                RoundedRectangle(pos=(cx - 14, cy - 6), size=(28, 14), radius=[4])
+                # D-pad (left)
+                Line(points=[cx - 9, cy - 2, cx - 9, cy + 2], width=1.5)
+                Line(points=[cx - 11, cy, cx - 7, cy], width=1.5)
+                # Buttons (right) - small circles
+                Color(0.7, 0.7, 0.7, 1)
+                Line(circle=(cx + 8, cy + 1, 2), width=1.2)
+                Line(circle=(cx + 11, cy - 1, 2), width=1.2)
+
+    def on_press(self):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.15, 0.15, 0.2, 1)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
+
+    def on_release(self):
+        self.canvas.before.clear()
+        self._draw()
 
 
 class GameControllerScreen(Screen):
@@ -26,17 +92,17 @@ class GameControllerScreen(Screen):
 
     Layout (landscape-style on portrait screen):
     ┌─────────────────────────────────────────────────────┐
-    │  [< Back]            Game Mode         [Motion]     │
+    │  [<]           [Gamepad] Game Mode        [Motion]  │
     ├─────────────────────────────────────────────────────┤
     │              [MENU]            [HOME]               │
     │                                                     │
-    │   ┌─────┐                              Y            │
-    │   │  ↑  │     ┌──────────────────┐   X   A          │
-    │ ┌─┼─────┼─┐   │                  │      B           │
-    │ │←│     │→│   │    TOUCH PAD     │                  │
-    │ └─┼─────┼─┘   │                  │                  │
-    │   │  ↓  │     └──────────────────┘                  │
-    │   └─────┘                                           │
+    │   ┌───────┐                              Y          │
+    │   │   ↑   │     ┌──────────────────┐   X   A        │
+    │ ┌─┼───────┼─┐   │                  │      B         │
+    │ │←│       │→│   │    TOUCH PAD     │                │
+    │ └─┼───────┼─┘   │                  │                │
+    │   │   ↓   │     └──────────────────┘                │
+    │   └───────┘                                         │
     │                                                     │
     │                  [PLAY / PAUSE]                     │
     └─────────────────────────────────────────────────────┘
@@ -65,31 +131,43 @@ class GameControllerScreen(Screen):
         header = BoxLayout(
             orientation='horizontal',
             size_hint=(1, None),
-            height=45,
+            height=50,
             padding=[5, 0],
             spacing=10
         )
 
-        back_btn = Button(
-            text='< Back',
-            size_hint=(None, 1),
-            width=70,
-            font_size='13sp',
-            background_color=(0.2, 0.2, 0.25, 1),
-            background_normal=''
+        # Back button (icon only)
+        back_btn = IconButton(
+            icon_type='back',
+            width=45,
+            height=45
         )
-        back_btn.bind(on_press=self._on_back)
+        back_btn.bind(on_release=self._on_back)
         header.add_widget(back_btn)
 
         header.add_widget(Widget())  # Spacer
 
-        header.add_widget(Label(
+        # Game Mode with icon and text
+        game_mode_box = BoxLayout(
+            orientation='horizontal',
+            size_hint=(None, 1),
+            width=150,
+            spacing=5
+        )
+        game_icon = IconButton(
+            icon_type='gamepad',
+            width=40,
+            height=35
+        )
+        game_mode_box.add_widget(game_icon)
+        game_mode_box.add_widget(Label(
             text='Game Mode',
-            font_size='16sp',
+            font_size='15sp',
             bold=True,
             size_hint=(None, 1),
             width=100
         ))
+        header.add_widget(game_mode_box)
 
         header.add_widget(Widget())  # Spacer
 
@@ -106,36 +184,32 @@ class GameControllerScreen(Screen):
 
         main_layout.add_widget(header)
 
-        # === System Buttons Row ===
+        # === System Buttons Row (Menu/Home icons) ===
         system_row = BoxLayout(
             orientation='horizontal',
             size_hint=(1, None),
-            height=40,
+            height=50,
             padding=[20, 0],
-            spacing=20
+            spacing=30
         )
         system_row.add_widget(Widget())  # Left spacer
 
-        menu_btn = Button(
-            text='MENU',
-            size_hint=(None, 1),
-            width=80,
-            font_size='13sp',
-            background_color=(0.22, 0.22, 0.27, 1),
-            background_normal=''
+        # Menu button (icon only)
+        menu_btn = IconButton(
+            icon_type='menu',
+            width=60,
+            height=45
         )
-        menu_btn.bind(on_press=self._on_menu)
+        menu_btn.bind(on_release=self._on_menu)
         system_row.add_widget(menu_btn)
 
-        home_btn = Button(
-            text='HOME',
-            size_hint=(None, 1),
-            width=80,
-            font_size='13sp',
-            background_color=(0.22, 0.22, 0.27, 1),
-            background_normal=''
+        # Home button (icon only)
+        home_btn = IconButton(
+            icon_type='home',
+            width=60,
+            height=45
         )
-        home_btn.bind(on_press=self._on_home)
+        home_btn.bind(on_release=self._on_home)
         system_row.add_widget(home_btn)
 
         system_row.add_widget(Widget())  # Right spacer
@@ -145,18 +219,18 @@ class GameControllerScreen(Screen):
         controls_area = BoxLayout(
             orientation='horizontal',
             size_hint=(1, 1),
-            padding=[10, 10],
-            spacing=10
+            padding=[5, 5],
+            spacing=5
         )
 
-        # --- Left: D-Pad ---
-        left_container = FloatLayout(size_hint=(0.28, 1))
+        # --- Left: D-Pad (2x larger = 360x360) ---
+        left_container = FloatLayout(size_hint=(0.35, 1))
 
         # Center the D-pad vertically in its container
         self.dpad = DPad(
             size_hint=(None, None),
-            size=(180, 180),
-            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+            size=(360, 360),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
         )
         self.dpad.bind(
             on_direction=self._on_dpad_direction,
@@ -166,12 +240,12 @@ class GameControllerScreen(Screen):
         controls_area.add_widget(left_container)
 
         # --- Center: Touch Pad ---
-        center_container = FloatLayout(size_hint=(0.44, 1))
+        center_container = FloatLayout(size_hint=(0.35, 1))
 
         # Touch pad with background
         self.touchpad_wrapper = RelativeLayout(
-            size_hint=(0.95, 0.7),
-            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+            size_hint=(0.95, 0.6),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
         )
 
         with self.touchpad_wrapper.canvas.before:
@@ -201,14 +275,14 @@ class GameControllerScreen(Screen):
         controls_area.add_widget(center_container)
 
         # --- Right: A/B/X/Y Buttons ---
-        right_container = FloatLayout(size_hint=(0.28, 1))
+        right_container = FloatLayout(size_hint=(0.30, 1))
 
         self.game_buttons = GameButtons(
             size_hint=(None, None),
             size=(170, 170),
             button_size=55,
             spacing=5,
-            pos_hint={'center_x': 0.5, 'center_y': 0.55}
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
         )
         self.game_buttons.bind(
             on_button_press=self._on_button_press,

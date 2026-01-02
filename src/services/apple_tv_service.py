@@ -391,18 +391,52 @@ class AppleTVService(EventDispatcher):
         self._send_command('skip_backward', time_interval=seconds)
     
     # Volume Commands
-    
+
     def volume_up(self):
-        """Increase volume."""
-        self._send_command('volume_up')
-    
+        """Increase volume by 5%."""
+        if not PYATV_AVAILABLE:
+            self._log("[Simulated] Volume up", "debug")
+            return
+
+        self._run_async(self._adjust_volume(5))
+
     def volume_down(self):
-        """Decrease volume."""
-        self._send_command('volume_down')
-    
+        """Decrease volume by 5%."""
+        if not PYATV_AVAILABLE:
+            self._log("[Simulated] Volume down", "debug")
+            return
+
+        self._run_async(self._adjust_volume(-5))
+
+    async def _adjust_volume(self, delta: float):
+        """Adjust volume by delta amount."""
+        try:
+            if self._atv and hasattr(self._atv, 'audio'):
+                current = self._atv.audio.volume
+                if current is not None:
+                    new_level = max(0, min(100, current + delta))
+                    await self._atv.audio.set_volume(new_level)
+                    self._log(f"Volume: {new_level:.0f}%", "debug")
+                else:
+                    self._log("Could not read current volume", "warning")
+            else:
+                self._log("Audio control not available", "warning")
+        except Exception as e:
+            self._log(f"Volume adjust failed: {e}", "error")
+
     def set_volume(self, level: float):
-        """Set volume level (0.0 - 1.0)."""
-        self._send_command('set_volume', level=level)
+        """Set volume level (0.0 - 100.0)."""
+        if not PYATV_AVAILABLE:
+            self._log(f"[Simulated] Set volume to {level}", "debug")
+            return
+
+        if self._atv and hasattr(self._atv, 'audio'):
+            try:
+                self._run_async(self._atv.audio.set_volume(level))
+            except Exception as e:
+                self._log(f"Set volume failed: {e}", "error")
+        else:
+            self._log("Audio control not available", "warning")
     
     # Touch/Swipe Commands (Game Controller)
     
