@@ -43,7 +43,8 @@ fullscreen = 0
 android.permissions = INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE, VIBRATE
 
 # (int) Target Android API, should be as high as possible.
-android.api = 33
+# Using 31 for better Docker/buildozer compatibility
+android.api = 31
 
 # (int) Minimum API your APK / AAB will support.
 android.minapi = 21
