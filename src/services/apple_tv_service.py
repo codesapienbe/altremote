@@ -6,6 +6,7 @@ Handles discovery, pairing, connection, and remote control commands.
 """
 
 import asyncio
+import threading
 from typing import Optional, List, Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -73,6 +74,7 @@ class AppleTVService(EventDispatcher):
         self._atv: Optional['AppleTV'] = None
         self._remote: Optional['RemoteControl'] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
         self._discovery_task = None
         self._credentials = {}
         self._log_service = None
@@ -98,15 +100,25 @@ class AppleTVService(EventDispatcher):
             print(f"[{level.upper()}] {message}")
     
     def _setup_event_loop(self):
-        """Set up the asyncio event loop."""
-        try:
-            self._loop = asyncio.get_event_loop()
-        except RuntimeError:
-            self._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._loop)
+        """Run the asyncio event loop on a dedicated background thread.
+
+        pyatv operations (scan, connect, commands) are network-bound and can
+        take seconds; running them on the Kivy main thread would freeze the
+        UI. All coroutines are submitted to this loop via _run_async, and
+        results are marshalled back to the main thread with Clock.
+        """
+        self._loop = asyncio.new_event_loop()
+        self._loop_thread = threading.Thread(
+            target=self._run_event_loop, name="atv-asyncio", daemon=True
+        )
+        self._loop_thread.start()
+
+    def _run_event_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
 
     def _run_async(self, coro, timeout: float = 5.0):
-        """Run an async coroutine from sync code with error handling."""
+        """Submit a coroutine to the background loop without blocking the caller."""
         async def safe_wrapper():
             try:
                 return await asyncio.wait_for(coro, timeout=timeout)
@@ -119,12 +131,8 @@ class AppleTVService(EventDispatcher):
             return None
 
         try:
-            if self._loop.is_running():
-                future = asyncio.ensure_future(safe_wrapper(), loop=self._loop)
-                # Add callback to handle any remaining exceptions
-                future.add_done_callback(self._handle_future_exception)
-            else:
-                self._loop.run_until_complete(safe_wrapper())
+            future = asyncio.run_coroutine_threadsafe(safe_wrapper(), self._loop)
+            future.add_done_callback(self._handle_future_exception)
         except Exception as e:
             self._log(f"Run async failed: {type(e).__name__}: {e}", "error")
 
@@ -298,13 +306,22 @@ class AppleTVService(EventDispatcher):
     def disconnect(self):
         """Disconnect from the Apple TV."""
         if self._atv:
-            self._atv.close()
+            # close() schedules cleanup tasks, so it must run on the loop thread
+            self._loop.call_soon_threadsafe(self._atv.close)
             self._atv = None
             self._remote = None
-        
+
         self.is_connected = False
         self.connection_state = ConnectionState.DISCONNECTED.value
         self.current_device_name = ""
+
+    def shutdown(self):
+        """Disconnect and stop the background event loop thread."""
+        self.disconnect()
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._loop_thread and self._loop_thread.is_alive():
+            self._loop_thread.join(timeout=2.0)
     
     # Remote Control Methods
     

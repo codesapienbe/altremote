@@ -104,7 +104,7 @@ class AppleTVRemoteApp(App):
         # Clean up services
         if self.atv_service:
             try:
-                self.atv_service.disconnect()
+                self.atv_service.shutdown()
             except Exception as e:
                 print(f"Error disconnecting: {e}")
 
